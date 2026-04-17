@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from src.api.database import init_db
-from src.api.routes import zones, scores, explain
+from src.api.routes import zones, scores, explain, feedback 
 import uvicorn
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -26,6 +26,7 @@ async def startup():
 app.include_router(zones.router,   prefix="/api")
 app.include_router(scores.router,  prefix="/api")
 app.include_router(explain.router, prefix="/api")
+app.include_router(feedback.router, prefix="/api")
 
 # ── Health ──
 @app.get("/health")
