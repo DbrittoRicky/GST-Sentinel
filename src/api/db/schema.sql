@@ -28,6 +28,16 @@ CREATE TABLE IF NOT EXISTS alert_feedback (
     created_at      TIMESTAMP   DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS score_cache (
+    date DATE NOT NULL,
+    zone_id TEXT NOT NULL,
+    z_score FLOAT NOT NULL,
+    chl_raw FLOAT,
+    mu FLOAT,
+    PRIMARY KEY (date, zone_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_score_date ON score_cache(date);
 CREATE INDEX IF NOT EXISTS idx_alerts_date     ON alerts(alert_date);
 CREATE INDEX IF NOT EXISTS idx_alerts_region   ON alerts(region_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_alert  ON alert_feedback(alert_id);

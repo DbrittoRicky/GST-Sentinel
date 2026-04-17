@@ -24,7 +24,7 @@ def build_grid():
                 "type": "Feature",
                 "geometry": geom.__geo_interface__,
                 "properties": {
-                    "zone_id": f"IN-R{zone_id:03d}",
+                    "zone_id": f"IN-R{zone_id:04d}",
                     "centroid_lat": round(centroid_lat, 4),
                     "centroid_lon": round(centroid_lon, 4),
                     "lat_idx": int(round((lat - LAT_MIN) / STEP)),

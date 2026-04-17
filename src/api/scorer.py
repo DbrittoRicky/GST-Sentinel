@@ -1,64 +1,69 @@
 # src/api/scorer.py
-import numpy as np
-import json
 import pandas as pd
 import os
 from pathlib import Path
 
-PROCESSED_DIR = Path("data/processed")
-_tensor = None          # (N, T, 1)
-_zones  = None          # list of zone property dicts
-_times  = None          # list of date strings YYYY-MM-DD
-_loaded = False
+# Resolve paths relative to repo root (works regardless of where you run from)
+REPO_ROOT  = Path(__file__).resolve().parents[2]
+SCORES_DIR = REPO_ROOT / "data" / "processed" / "scores"
 
-def _try_load():
-    global _tensor, _zones, _times, _loaded
-    tensor_path = PROCESSED_DIR / "anomaly_tensor.npy"
-    zones_path  = PROCESSED_DIR / "zones.geojson"
-    times_path  = PROCESSED_DIR / "times.npy"
+_cache = {}   # { date_str: DataFrame } — in-memory cache per date
 
-    if not (tensor_path.exists() and zones_path.exists() and times_path.exists()):
-        print("WARNING: Tensor/zones not found — running in MOCK mode.")
-        return False
+def _load_csv(date_str: str):
+    """Load the GNN score CSV for a given date. Returns DataFrame or None."""
+    if date_str in _cache:
+        return _cache[date_str]
 
-    _tensor = np.load(tensor_path)                              # (N, T, 1)
-    raw_times = np.load(times_path, allow_pickle=True)
-    _times = [pd.Timestamp(t).strftime("%Y-%m-%d") for t in raw_times]
+    # GNN score.py writes: scores2023-12-31.csv  (no hyphen after 'scores')
+    path = SCORES_DIR / f"scores{date_str}.csv"
+    if not path.exists():
+        # Fallback: try with hyphen separator
+        path = SCORES_DIR / f"scores-{date_str}.csv"
+    if not path.exists():
+        return None
 
-    with open(zones_path) as f:
-        gj = json.load(f)
-    _zones = [feat["properties"] for feat in gj["features"]]
-    _loaded = True
-    print(f"Scorer loaded: {len(_zones)} zones × {len(_times)} days.")
-    return True
+    df = pd.read_csv(path)
+    _cache[date_str] = df
+    return df
+
+def get_available_dates() -> list:
+    """Return sorted list of all scored dates (YYYY-MM-DD)."""
+    if not SCORES_DIR.exists():
+        print(f"WARNING: scores dir not found at {SCORES_DIR}")
+        return []
+    dates = []
+    for f in sorted(SCORES_DIR.glob("scores*.csv")):
+        # Strip 'scores' or 'scores-' prefix → '2023-10-03'
+        stem = f.stem  # e.g. 'scores2023-10-03'
+        date_part = stem.replace("scores-", "").replace("scores", "")
+        if len(date_part) == 10:   # YYYY-MM-DD
+            dates.append(date_part)
+    return sorted(dates)
 
 def get_scores_for_date(date_str: str) -> dict:
     """Returns { zone_id: z_score } for a given date string YYYY-MM-DD."""
-    if not _loaded:
-        _try_load()
+    df = _load_csv(date_str)
 
-    if not _loaded:
-        # Mock mode: generate plausible random scores for demo
+    if df is None:
+        # MOCK fallback — deterministic so map colours are stable per date
         import random, hashlib
         seed = int(hashlib.md5(date_str.encode()).hexdigest()[:8], 16)
-        rng = random.Random(seed)
-        mock_zones = [f"IN-R{i:03d}" for i in range(1, 201)]
+        rng  = random.Random(seed)
+        mock_zones = [f"IN-R{i:04d}" for i in range(1, 201)]
+        print(f"MOCK mode for {date_str} — CSV not found in {SCORES_DIR}")
         return {z: round(rng.gauss(0, 1.2), 3) for z in mock_zones}
 
-    if date_str not in _times:
-        return {}
+    # CSV columns from score.py: region_id, score, chl_z, persistence_days, alert
+    id_col    = "region_id" if "region_id" in df.columns else df.columns[0]
+    score_col = "score"     if "score"     in df.columns else "chl_z"
 
-    t_idx = _times.index(date_str)
-    scores = {}
-    for i, z in enumerate(_zones):
-        val = float(_tensor[i, t_idx, 0])
-        scores[z["zone_id"]] = round(val, 4)
-    return scores
+    return {
+        str(row[id_col]): round(float(row[score_col]), 4)
+        for _, row in df.iterrows()
+    }
 
 def get_top_zones(scores: dict, n: int = 10) -> list:
-    """Return top-N zones by z_score descending."""
+    """Return top-N zones by score descending."""
     sorted_zones = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    return [{"zone_id": zid, "z_score": zscore} for zid, zscore in sorted_zones[:n]]
-
-# Pre-load on import
-_try_load()
+    return [{"zone_id": zid, "z_score": round(zscore, 4)}
+            for zid, zscore in sorted_zones[:n]]

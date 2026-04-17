@@ -5,7 +5,7 @@ from pathlib import Path
 import json
 
 router = APIRouter()
-ZONES_PATH = Path("data/processed/zones.geojson")
+ZONES_PATH = Path(__file__).resolve().parents[3] / "data" / "processed" / "zones.geojson"
 
 # Cache in memory after first load
 _zones_cache = None
