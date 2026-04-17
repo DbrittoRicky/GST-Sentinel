@@ -4,10 +4,10 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from src.api.database import init_db
-from src.api.routes import zones, scores, explain, feedback 
+from src.api.routes import zones, scores, explain, feedback, alerts   # ← added alerts
 import uvicorn
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 app = FastAPI(
@@ -16,29 +16,26 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# ── Startup ──
 @app.on_event("startup")
 async def startup():
     init_db()
     print("GST-Sentinel API started.")
 
-# ── API Routes ──
-app.include_router(zones.router,   prefix="/api")
-app.include_router(scores.router,  prefix="/api")
-app.include_router(explain.router, prefix="/api")
+# ── API Routes ──────────────────────────────────────────────
+app.include_router(zones.router,    prefix="/api")
+app.include_router(scores.router,   prefix="/api")
+app.include_router(explain.router,  prefix="/api")
 app.include_router(feedback.router, prefix="/api")
+app.include_router(alerts.router,   prefix="/api")    # ← added
 
-# ── Health ──
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "gst-sentinel"}
 
-# ── Serve Dashboard UI ──
 @app.get("/")
 async def root():
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
-# ── Static assets — mount AFTER all API routes ──
 app.mount("/css", StaticFiles(directory=os.path.join(STATIC_DIR, "css")), name="css")
 app.mount("/js",  StaticFiles(directory=os.path.join(STATIC_DIR, "js")),  name="js")
 
