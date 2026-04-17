@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 from src.api.scorer import get_scores_for_date, get_top_zones, get_available_dates
 from src.api.database import get_conn
 from datetime import date as DateType
+import math
 import psycopg2
 import psycopg2.extras
 
@@ -39,7 +40,15 @@ async def get_scores(date: str = Query(..., description="Date in YYYY-MM-DD form
         cur.close()
         conn.close()
         if rows:
-            scores = {r[0]: r[1] for r in rows}
+            scores = {}
+            for zid, zscore in rows:
+                try:
+                    z = float(zscore)
+                except (TypeError, ValueError):
+                    z = 0.0
+                if not math.isfinite(z):
+                    z = 0.0
+                scores[zid] = round(z, 4)
             return JSONResponse(content={
                 "date": date,
                 "scores": scores,
@@ -57,10 +66,19 @@ async def get_scores(date: str = Query(..., description="Date in YYYY-MM-DD form
     try:
         conn = get_conn()
         cur = conn.cursor()
+        cache_rows = []
+        for zid, zscore in scores.items():
+            try:
+                z = float(zscore)
+            except (TypeError, ValueError):
+                z = 0.0
+            if not math.isfinite(z):
+                z = 0.0
+            cache_rows.append((date, zid, z))
         psycopg2.extras.execute_values(
             cur,
             "INSERT INTO score_cache (date, zone_id, z_score) VALUES %s ON CONFLICT DO NOTHING",
-            [(date, zid, zscore) for zid, zscore in scores.items()]
+            cache_rows
         )
         conn.commit()
         cur.close()

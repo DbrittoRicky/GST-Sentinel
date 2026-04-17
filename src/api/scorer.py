@@ -1,6 +1,7 @@
 # src/api/scorer.py
 import pandas as pd
 import os
+import math
 from pathlib import Path
 
 # Resolve paths relative to repo root (works regardless of where you run from)
@@ -55,13 +56,30 @@ def get_scores_for_date(date_str: str) -> dict:
     id_col    = "region_id" if "region_id" in df.columns else df.columns[0]
     score_col = "score"     if "score"     in df.columns else "chl_z"
 
-    return {
-        str(row[id_col]): round(float(row[score_col]), 4)
-        for _, row in df.iterrows()
-    }
+    scores = {}
+    for _, row in df.iterrows():
+        zid = str(row[id_col])
+        try:
+            zscore = float(row[score_col])
+        except (TypeError, ValueError):
+            zscore = 0.0
+        if not math.isfinite(zscore):
+            zscore = 0.0
+        scores[zid] = round(zscore, 4)
+
+    return scores
 
 def get_top_zones(scores: dict, n: int = 10) -> list:
     """Return top-N zones by score descending."""
-    sorted_zones = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    finite_scores = []
+    for zid, zscore in scores.items():
+        try:
+            z = float(zscore)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(z):
+            finite_scores.append((zid, z))
+
+    sorted_zones = sorted(finite_scores, key=lambda x: x[1], reverse=True)
     return [{"zone_id": zid, "z_score": round(zscore, 4)}
             for zid, zscore in sorted_zones[:n]]
