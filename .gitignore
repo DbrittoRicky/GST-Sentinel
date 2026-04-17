@@ -15,8 +15,8 @@ data/processed/
 *.zarr/
 *.npy
 *.npz
-*.pt
 *.pth
+*.geojson
 
 # ============================================================
 # PYTHON CACHE & BYTECODE
