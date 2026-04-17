@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>GST-Sentinel — Coastal Algal Bloom Monitor</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <!-- Dashboard CSS -->
+  <link rel="stylesheet" href="css/dashboard.css"/>
+</head>
+<body>
+
+  <!-- ── Top Bar ── -->
+  <header id="topbar">
+    <span id="logo">🌊 GST-Sentinel</span>
+    <span id="subtitle">Indian EEZ Chlorophyll Anomaly Monitor</span>
+    <span id="live-badge">● LIVE</span>
+  </header>
+
+  <!-- ── Main Layout ── -->
+  <div id="app">
+
+    <!-- Left: Map -->
+    <div id="map-container">
+      <div id="map"></div>
+      <!-- Colour Legend -->
+      <div id="legend">
+        <div class="legend-title">CHL Anomaly (σ)</div>
+        <div class="legend-scale"></div>
+        <div class="legend-labels">
+          <span>-3</span><span>0</span><span>+3</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Control Panel -->
+    <div id="panel">
+
+      <!-- Date Slider -->
+      <div class="panel-section" id="timeline-section">
+        <h3>📅 Date</h3>
+        <div id="date-display">2024-01-01</div>
+        <input type="range" id="date-slider" min="0" max="89" value="0" step="1"/>
+        <div id="slider-labels">
+          <span>Jan 2024</span><span>Mar 2024</span>
+        </div>
+        <button id="play-btn">▶ Play</button>
+      </div>
+
+      <!-- Zone Info -->
+      <div class="panel-section" id="zone-section">
+        <h3>📍 Selected Zone</h3>
+        <div id="zone-info">
+          <p id="zone-id-display">Click a zone on the map</p>
+          <table id="zone-stats" style="display:none">
+            <tr><td>Zone ID</td><td id="stat-zone-id">—</td></tr>
+            <tr><td>Anomaly (σ)</td><td id="stat-zscore">—</td></tr>
+            <tr><td>Raw CHL</td><td id="stat-chl">— mg/m³</td></tr>
+            <tr><td>Climatology μ</td><td id="stat-mu">—</td></tr>
+            <tr><td>Risk Level</td><td id="stat-risk">—</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- NL Explain -->
+      <div class="panel-section" id="explain-section">
+        <h3>🤖 Explain Anomaly</h3>
+        <button id="explain-btn" disabled>Ask AI</button>
+        <div id="explain-output">
+          <p id="explain-text">Select a zone first, then click Ask AI.</p>
+        </div>
+      </div>
+
+      <!-- Top Anomaly Zones -->
+      <div class="panel-section" id="topzones-section">
+        <h3>🚨 Top Risk Zones Today</h3>
+        <ol id="top-zones-list">
+          <li>Loading...</li>
+        </ol>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- App JS — order matters -->
+  <script src="js/heatmap.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/timeline.js"></script>
+  <script src="js/explain.js"></script>
+</body>
+</html>
