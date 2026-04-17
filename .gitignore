@@ -17,7 +17,6 @@ data/processed/
 *.npz
 *.pt
 *.pth
-checkpoints/
 
 # ============================================================
 # PYTHON CACHE & BYTECODE
