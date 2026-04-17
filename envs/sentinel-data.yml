@@ -1,0 +1,17 @@
+name: sentinel-data
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+    - copernicusmarine
+    - xarray
+    - netcdf4
+    - numpy
+    - pandas
+    - geopandas
+    - shapely
+    - zarr
+    - scipy
