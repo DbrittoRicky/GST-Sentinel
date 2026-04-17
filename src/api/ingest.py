@@ -1,33 +1,42 @@
 # src/api/ingest.py
-"""
-Daily score ingestion: reads scores/YYYY-MM-DD.csv → writes to alerts table.
-
-Run manually:
-    python -m src.api.ingest --date 2024-03-15
-
-Or call ingest_date(date_str) programmatically from a scheduler / startup hook.
-
-CSV columns expected (from src/model/score.py):
-    region_id, score, chl_z, persistence_days, alert  (alert col is optional)
-"""
-
 import argparse
 import pandas as pd
 from pathlib import Path
-from src.api.database import get_conn
-from src.api.threshold import get_theta
+from src.api.database import get_conn, release_conn
 
 REPO_ROOT  = Path(__file__).resolve().parents[2]
 SCORES_DIR = REPO_ROOT / "data" / "processed" / "scores"
+THETA_DEFAULT = 2.0
+
+
+def _load_all_thetas(conn) -> dict:
+    """Bulk fetch all θᵢ values in one query. Returns { region_id: theta }."""
+    cur = conn.cursor()
+    cur.execute("SELECT region_id, theta FROM region_thresholds")
+    rows = cur.fetchall()
+    cur.close()
+    return {r[0]: r[1] for r in rows}
+
+
+def _ensure_thetas(conn, region_ids: list, existing: dict):
+    new_zones = [(zid, THETA_DEFAULT) for zid in region_ids if zid not in existing]
+    if not new_zones:
+        return
+    from psycopg2.extras import execute_values
+    cur = conn.cursor()
+    execute_values(
+        cur,
+        """INSERT INTO region_thresholds (region_id, theta)
+           VALUES %s
+           ON CONFLICT DO NOTHING""",
+        new_zones
+    )
+    conn.commit()
+    cur.close()
+
 
 
 def ingest_date(date_str: str) -> dict:
-    """
-    Load scores CSV for date_str, compare each zone score vs θᵢ,
-    insert qualifying zones into alerts table.
-
-    Returns a summary dict: { ingested, skipped, total }
-    """
     # --- locate CSV ---
     csv_path = None
     for fmt in [f"scores_{date_str}.csv", f"scores{date_str}.csv", f"scores-{date_str}.csv"]:
@@ -43,51 +52,65 @@ def ingest_date(date_str: str) -> dict:
     df = pd.read_csv(csv_path)
 
     # Normalise column names
-    id_col    = "region_id"    if "region_id"         in df.columns else df.columns[0]
-    score_col = "score"        if "score"             in df.columns else "chl_z"
-    chlz_col  = "chl_z"        if "chl_z"             in df.columns else None
-    pers_col  = "persistence_days" if "persistence_days" in df.columns else None
+    id_col    = "region_id"        if "region_id"         in df.columns else df.columns[0]
+    score_col = "score"            if "score"             in df.columns else "chl_z"
+    chlz_col  = "chl_z"            if "chl_z"             in df.columns else None
+    pers_col  = "persistence_days" if "persistence_days"  in df.columns else None
 
     conn = get_conn()
-    cur  = conn.cursor()
+    try:
+        # 1. Bulk fetch existing thetas — ONE round-trip
+        thetas = _load_all_thetas(conn)
 
-    ingested = 0
-    skipped  = 0
+        # 2. Bulk insert default rows for new zones — ONE round-trip
+        region_ids = df[id_col].astype(str).tolist()
+        _ensure_thetas(conn, region_ids, thetas)
 
-    for _, row in df.iterrows():
-        region_id = str(row[id_col])
-        score     = float(row[score_col])
-        chl_z     = float(row[chlz_col])     if chlz_col and pd.notna(row[chlz_col])  else None
-        pers_days = int(row[pers_col])        if pers_col and pd.notna(row[pers_col])  else 1
+        # Refresh thetas after insert
+        thetas = _load_all_thetas(conn)
 
-        # Fetch current θᵢ for this zone (inserts default row if zone is new)
-        theta = get_theta(region_id)
+        # 3. Build alert rows in Python — zero DB calls
+        alert_rows = []
+        skipped    = 0
 
-        if score < theta:
-            skipped += 1
-            continue                          # below threshold — not an alert
+        for _, row in df.iterrows():
+            region_id = str(row[id_col])
+            score     = float(row[score_col])
+            chl_z     = float(row[chlz_col])    if chlz_col and pd.notna(row.get(chlz_col)) else None
+            pers_days = int(row[pers_col])       if pers_col and pd.notna(row.get(pers_col)) else 1
+            theta     = thetas.get(region_id, THETA_DEFAULT)
 
-        # Upsert: update score/theta if same zone+date already exists
-        cur.execute(
-            """INSERT INTO alerts
-                   (region_id, alert_date, score, theta_used, chl_z, persistence_days)
-               VALUES (%s, %s, %s, %s, %s, %s)
-               ON CONFLICT (region_id, alert_date)
-               DO UPDATE SET
-                   score            = EXCLUDED.score,
-                   theta_used       = EXCLUDED.theta_used,
-                   chl_z            = EXCLUDED.chl_z,
-                   persistence_days = EXCLUDED.persistence_days,
-                   created_at       = NOW()""",
-            (region_id, date_str, score, theta, chl_z, pers_days)
-        )
-        ingested += 1
+            if score < theta:
+                skipped += 1
+                continue
 
-    conn.commit()
-    cur.close()
-    conn.close()
+            alert_rows.append((region_id, date_str, score, theta, chl_z, pers_days))
 
-    total = ingested + skipped
+        # 4. Bulk upsert all alert rows — ONE round-trip
+        if alert_rows:
+            from psycopg2.extras import execute_values
+            cur = conn.cursor()
+            execute_values(
+                cur,
+                """INSERT INTO alerts (region_id, alert_date, score, theta_used, chl_z, persistence_days)
+                   VALUES %s
+                   ON CONFLICT (region_id, alert_date)
+                   DO UPDATE SET
+                       score            = EXCLUDED.score,
+                       theta_used       = EXCLUDED.theta_used,
+                       chl_z            = EXCLUDED.chl_z,
+                       persistence_days = EXCLUDED.persistence_days,
+                       created_at       = NOW()""",
+                alert_rows
+            )
+            conn.commit()
+            cur.close()
+
+    finally:
+        release_conn(conn)
+
+    ingested = len(alert_rows)
+    total    = ingested + skipped
     print(f"[ingest] {date_str} → {ingested} alerts written, {skipped} below threshold (total zones: {total})")
     return {"date": date_str, "ingested": ingested, "skipped": skipped, "total": total}
 
