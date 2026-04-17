@@ -10,33 +10,31 @@ SCORES_DIR = REPO_ROOT / "data" / "processed" / "scores"
 _cache = {}   # { date_str: DataFrame } — in-memory cache per date
 
 def _load_csv(date_str: str):
-    """Load the GNN score CSV for a given date. Returns DataFrame or None."""
     if date_str in _cache:
         return _cache[date_str]
 
-    # GNN score.py writes: scores2023-12-31.csv  (no hyphen after 'scores')
-    path = SCORES_DIR / f"scores{date_str}.csv"
-    if not path.exists():
-        # Fallback: try with hyphen separator
-        path = SCORES_DIR / f"scores-{date_str}.csv"
-    if not path.exists():
-        return None
-
-    df = pd.read_csv(path)
-    _cache[date_str] = df
-    return df
+    # Try all three naming conventions
+    for fmt in [f"scores_{date_str}.csv",   # ← actual format on disk
+                f"scores{date_str}.csv",
+                f"scores-{date_str}.csv"]:
+        path = SCORES_DIR / fmt
+        if path.exists():
+            df = pd.read_csv(path)
+            _cache[date_str] = df
+            return df
+    return None
 
 def get_available_dates() -> list:
-    """Return sorted list of all scored dates (YYYY-MM-DD)."""
     if not SCORES_DIR.exists():
-        print(f"WARNING: scores dir not found at {SCORES_DIR}")
         return []
     dates = []
     for f in sorted(SCORES_DIR.glob("scores*.csv")):
-        # Strip 'scores' or 'scores-' prefix → '2023-10-03'
-        stem = f.stem  # e.g. 'scores2023-10-03'
-        date_part = stem.replace("scores-", "").replace("scores", "")
-        if len(date_part) == 10:   # YYYY-MM-DD
+        stem = f.stem  # 'scores_2023-10-03'
+        for prefix in ["scores_", "scores-", "scores"]:
+            if stem.startswith(prefix):
+                date_part = stem[len(prefix):]
+                break
+        if len(date_part) == 10:
             dates.append(date_part)
     return sorted(dates)
 
