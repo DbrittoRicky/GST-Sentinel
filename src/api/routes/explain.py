@@ -4,30 +4,40 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 1  Intent Resolver     → classify query into one of 3 intents
 # Stage 2  Context Packager    → pull closed-world JSON from NeonDB only
-# Stage 3  Grounded Prompt     → LLM call + output validator
+# Stage 3  Grounded Prompt     → Groq LLM call + output validator
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 import os
 import re
 import json
 import httpx
 import math
+from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from src.api.database import get_conn, release_conn
 
-load_dotenv()
 
-OLLAMA_HOST    = os.getenv("OLLAMA_HOST",    "http://localhost:11434")
-OLLAMA_MODEL   = os.getenv("OLLAMA_MODEL",   "qwen3:8b")
-GROQ_API_KEY   = os.getenv("GROQ_API_KEY",   "")
-GROQ_MODEL     = os.getenv("GROQ_MODEL",     "llama3-8b-8192")
-TOP_K_ALERTS   = int(os.getenv("RAG_TOP_K",       "5"))
-HISTORY_DAYS   = int(os.getenv("RAG_HISTORY",      "30"))
-NEIGHBOR_LIMIT = int(os.getenv("RAG_NEIGHBORS",    "3"))
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[3] / ".env")
+
+
+GROQ_API_KEY   = os.getenv("GROQ_API_KEY",   "").strip()
+GROQ_MODEL     = os.getenv("GROQ_MODEL",     "llama-3.1-8b-instant").strip()
+GROQ_MODEL_FALLBACKS = [
+    m.strip() for m in os.getenv(
+        "GROQ_MODEL_FALLBACKS",
+        "llama-3.1-8b-instant,llama-3.3-70b-versatile"
+    ).split(",") if m.strip()
+]
+TOP_K_ALERTS   = int(os.getenv("RAG_TOP_K",    "5"))
+NEIGHBOR_LIMIT = int(os.getenv("RAG_NEIGHBORS", "3"))
+
+print(f"[explain] GROQ_MODEL   = {GROQ_MODEL}")
+print(f"[explain] GROQ_API_KEY = {'SET (' + GROQ_API_KEY[:8] + '...)' if GROQ_API_KEY else 'MISSING'}")
+
 
 router = APIRouter()
 
@@ -36,11 +46,12 @@ router = APIRouter()
 # Pydantic models
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class ExplainRequest(BaseModel):
     zone_id: str
     z_score: float
     date:    str
-    query:   Optional[str] = None     # freeform NL query; if omitted → zone_specific
+    query:   Optional[str] = None
 
 
 class ExplainResponse(BaseModel):
@@ -55,6 +66,7 @@ class ExplainResponse(BaseModel):
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 1 — Intent Resolver
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 _ATTENTION_KEYWORDS = {
     "attention", "now", "critical", "today", "urgent", "top", "worst",
@@ -86,6 +98,7 @@ def _resolve_intent(query: Optional[str], zone_id: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 2 — Context Packager
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _safe(val, digits=4):
     if val is None:
@@ -127,7 +140,7 @@ def _build_context(intent: str, zone_id: str, date: str, top_k: int = TOP_K_ALER
 
         elif intent == "zone_specific":
             cur.execute("""
-                SELECT a.score, a.chl_z, a.sst_z, a.persistence_days,
+                SELECT a.score, a.chl_z, a.persistence_days,
                        rt.theta, rt.tp_count, rt.fp_count
                 FROM   alerts a
                 LEFT JOIN region_thresholds rt ON rt.region_id = a.region_id
@@ -138,27 +151,25 @@ def _build_context(intent: str, zone_id: str, date: str, top_k: int = TOP_K_ALER
 
             zone_entry: dict = {
                 "region_id": zone_id, "score": None, "chl_z": None,
-                "sst_z": None, "persistence_days": 1, "theta": 2.0,
+                "persistence_days": 1, "theta": 2.0,
                 "tp_count": 0, "fp_count": 0, "history_30d": [], "neighbors": [],
             }
             if row:
-                score, chl_z, sst_z, pers, theta, tp, fp = row
+                score, chl_z, pers, theta, tp, fp = row
                 zone_entry.update({
                     "score":            _safe(score),
                     "chl_z":            _safe(chl_z),
-                    "sst_z":            _safe(sst_z),
                     "persistence_days": pers,
                     "theta":            _safe(theta) or 2.0,
                     "tp_count":         tp or 0,
                     "fp_count":         fp or 0,
                 })
 
-            # 30-day history from alerts table
             cur.execute("""
                 SELECT alert_date, score, chl_z
                 FROM   alerts
                 WHERE  region_id = %s
-                  AND  alert_date BETWEEN (%s::date - INTERVAL '30 days') AND %s::date
+                  AND  alert_date BETWEEN (%s::date - INTERVAL '7 days') AND %s::date
                 ORDER  BY alert_date ASC
             """, (zone_id, date, date))
             zone_entry["history_30d"] = [
@@ -166,7 +177,6 @@ def _build_context(intent: str, zone_id: str, date: str, top_k: int = TOP_K_ALER
                 for r in cur.fetchall()
             ]
 
-            # Neighboring zones
             cur.execute("""
                 SELECT region_id, score, chl_z, persistence_days
                 FROM   alerts
@@ -221,46 +231,46 @@ def _build_context(intent: str, zone_id: str, date: str, top_k: int = TOP_K_ALER
 # Stage 3a — Prompt Builder
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 _SYSTEM_PROMPT = (
-    "You are a marine scientist assistant analyzing Indian Ocean / Arabian Sea chlorophyll-a anomalies. "
-    "Answer ONLY using the data provided in the context JSON below. "
-    "Do NOT invent zone IDs, scores, or events not present in the context. "
-    "Output EXACTLY 3 bullet points (start each with '- '). "
-    "Each bullet must cite a specific zone_id and numerical value from the context. "
-    "Be concise — max 30 words per bullet."
+    "You are a marine scientist assistant analyzing Indian Ocean / Arabian Sea "
+    "chlorophyll-a anomalies. Answer ONLY using the data in the CONTEXT block. "
+    "Do NOT invent zone IDs, scores, or dates. "
+    "Output EXACTLY 3 bullet points starting with '- '. "
+    "Each bullet must cite a zone_id and a number from the context. "
+    "Max 25 words per bullet."
 )
 
 _INTENT_INSTRUCTIONS = {
     "attention_now": (
-        "The user wants to know which zones need immediate attention today. "
-        "Rank the top 3 zones by risk. For each, state region_id, score, persistence, and why it's critical."
+        "Rank top 3 zones by risk. State region_id, score, persistence, and why critical."
     ),
     "zone_specific": (
-        "The user wants to understand why this specific zone is showing a high anomaly. "
-        "Explain the score magnitude, chl_z component, persistence streak, and how it compares to neighbors."
+        "Explain why this zone has a high anomaly: score magnitude, "
+        "chl_z, persistence streak, comparison to neighbors."
     ),
     "trend": (
-        "The user wants a 30-day trend analysis for this zone. "
-        "Describe the trend direction (rising/falling/stable), peak date and value, "
-        "and how many days the zone exceeded its adaptive threshold (theta)."
+        "Describe 30-day trend: direction, peak date/value, "
+        "days above adaptive threshold theta."
     ),
 }
 
 
 def _build_prompt(intent: str, context: dict) -> str:
     instruction = _INTENT_INSTRUCTIONS.get(intent, _INTENT_INSTRUCTIONS["zone_specific"])
+    ctx_str     = json.dumps(context, separators=(",", ":"))   # compact JSON — saves tokens
     return (
-        f"{_SYSTEM_PROMPT}\n\n"
         f"INTENT: {intent}\n"
-        f"INSTRUCTION: {instruction}\n\n"
-        f"CONTEXT (ground truth — do not go beyond this):\n{json.dumps(context, indent=2)}\n\n"
-        f"RESPONSE (3 bullets, citing zone IDs and numbers from the context only):"
+        f"TASK: {instruction}\n\n"
+        f"CONTEXT:\n{ctx_str}\n\n"
+        f"RESPONSE:"
     )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 3b — Output Validator
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _extract_valid_zone_ids(context: dict) -> set:
     valid = set()
@@ -289,33 +299,70 @@ def _validate_output(llm_text: str, valid_ids: set) -> tuple[str, list[str]]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# LLM Callers
+# Groq Caller
 # ─────────────────────────────────────────────────────────────────────────────
-
-async def _call_ollama(prompt: str) -> str:
-    async with httpx.AsyncClient(timeout=45) as client:
-        res = await client.post(
-            f"{OLLAMA_HOST}/api/generate",
-            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
-        )
-        res.raise_for_status()
-        return res.json()["response"].strip()
 
 
 async def _call_groq(prompt: str) -> str:
-    async with httpx.AsyncClient(timeout=25) as client:
-        res = await client.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
-            json={
-                "model":       GROQ_MODEL,
-                "messages":    [{"role": "user", "content": prompt}],
-                "max_tokens":  300,
-                "temperature": 0.2,
-            },
-        )
-        res.raise_for_status()
-        return res.json()["choices"][0]["message"]["content"].strip()
+    candidate_models = []
+    if GROQ_MODEL:
+        candidate_models.append(GROQ_MODEL)
+    for m in GROQ_MODEL_FALLBACKS:
+        if m not in candidate_models:
+            candidate_models.append(m)
+
+    if not GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY is missing")
+
+    last_error = None
+    async with httpx.AsyncClient(timeout=30) as client:
+        for model in candidate_models:
+            res = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type":  "application/json",
+                },
+                json={
+                    "model":       model,
+                    "messages": [
+                        {"role": "system", "content": _SYSTEM_PROMPT},
+                        {"role": "user",   "content": prompt},
+                    ],
+                    "max_tokens":  256,
+                    "temperature": 0.2,
+                },
+            )
+            if res.is_success:
+                payload = res.json()
+                print(f"[explain] Groq model used: {model}")
+                return payload["choices"][0]["message"]["content"].strip()
+
+            err_code = None
+            err_type = None
+            try:
+                err = res.json().get("error", {})
+                err_code = err.get("code")
+                err_type = err.get("type")
+            except Exception:
+                pass
+
+            last_error = RuntimeError(
+                f"Groq call failed for model '{model}' with status {res.status_code}: {res.text[:240]}"
+            )
+
+            retriable_model_error = (
+                res.status_code in (400, 404) and err_code in {
+                    "model_decommissioned", "model_not_found", "invalid_model"
+                }
+            )
+            if retriable_model_error:
+                print(f"[explain] Groq model '{model}' unavailable ({err_code or err_type}), trying fallback...")
+                continue
+
+            break
+
+    raise last_error or RuntimeError("Groq call failed for all configured models")
 
 
 def _static_fallback(intent: str, context: dict, zone_id: str, z_score: float, date: str) -> str:
@@ -324,13 +371,13 @@ def _static_fallback(intent: str, context: dict, zone_id: str, z_score: float, d
         return (
             f"- {z['region_id']} is the top alert on {date} with score {z['score']}σ "
             f"(persisted {z.get('persistence_days', 1)} days).\n"
-            f"- Adaptive threshold (θ={z.get('theta', 2.0)}) was exceeded; "
+            f"- Adaptive threshold (θ={z.get('theta', 2.0)}) exceeded; "
             f"TP={z.get('tp_count', 0)}, FP={z.get('fp_count', 0)}.\n"
             f"- AI explanation unavailable — verify via /api/zones/{z['region_id']}/history."
         )
     return (
         f"- Zone {zone_id} shows a {z_score:.2f}σ anomaly on {date}.\n"
-        f"- This may reflect upwelling or monsoon-driven nutrient flux in the Indian EEZ.\n"
+        f"- Likely reflects upwelling or monsoon-driven nutrient flux in the Indian EEZ.\n"
         f"- AI explanation temporarily unavailable; raw context returned in context_json."
     )
 
@@ -339,28 +386,21 @@ def _static_fallback(intent: str, context: dict, zone_id: str, z_score: float, d
 # Route
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @router.post("/explain", response_model=ExplainResponse)
 async def explain_anomaly(req: ExplainRequest):
-    # Stage 1 — Intent
-    intent = _resolve_intent(req.query, req.zone_id)
-
-    # Stage 2 — Context
-    context = _build_context(intent, req.zone_id, req.date)
-
-    # Stage 3 — LLM + Validate
+    intent    = _resolve_intent(req.query, req.zone_id)
+    context   = _build_context(intent, req.zone_id, req.date)
     prompt    = _build_prompt(intent, context)
     valid_ids = _extract_valid_zone_ids(context)
 
     raw_llm = ""
     try:
-        raw_llm = await _call_ollama(prompt)
+        raw_llm = await _call_groq(prompt)
+        print(f"[explain] Groq OK — intent={intent} zone={req.zone_id}")
     except Exception as e:
-        print(f"[explain] Ollama unavailable ({e}), trying Groq...")
-        try:
-            raw_llm = await _call_groq(prompt)
-        except Exception as e2:
-            print(f"[explain] Groq failed ({e2}), using static fallback.")
-            raw_llm = _static_fallback(intent, context, req.zone_id, req.z_score, req.date)
+        print(f"[explain] Groq failed ({e}), using static fallback.")
+        raw_llm = _static_fallback(intent, context, req.zone_id, req.z_score, req.date)
 
     explanation, bullets = _validate_output(raw_llm, valid_ids)
 

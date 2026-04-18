@@ -5,7 +5,7 @@ const ExplainModule = (() => {
 
   btn.addEventListener('click', async () => {
     const zoneId = btn.dataset.zoneId;
-    const zscore = parseFloat(btn.dataset.zscore);
+    const zscore = parseFloat(btn.dataset.zscore ?? btn.dataset.score ?? '0');
 
     if (!zoneId) return;
 

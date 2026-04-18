@@ -2,32 +2,28 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <link rel="icon" href="data:,">
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>GST-Sentinel — Coastal Algal Bloom Monitor</title>
 
-  <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <!-- Dashboard CSS -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <link rel="stylesheet" href="css/dashboard.css"/>
 </head>
 <body>
 
-  <!-- ── Top Bar ── -->
   <header id="topbar">
-    <span id="logo">🌊 GST-Sentinel</span>
+    <span id="logo">&#x1F30A; GST-Sentinel</span>
     <span id="subtitle">Indian EEZ Chlorophyll Anomaly Monitor</span>
-    <span id="live-badge">● LIVE</span>
+    <span id="live-badge">&#x25CF; LIVE</span>
   </header>
 
-  <!-- ── Main Layout ── -->
   <div id="app">
 
-    <!-- Left: Map -->
     <div id="map-container">
       <div id="map"></div>
-      <!-- Colour Legend -->
       <div id="legend">
-        <div class="legend-title">CHL Anomaly (σ)</div>
+        <div class="legend-title">CHL Anomaly (&#x3C3;)</div>
         <div class="legend-scale"></div>
         <div class="legend-labels">
           <span>-3</span><span>0</span><span>+3</span>
@@ -35,47 +31,57 @@
       </div>
     </div>
 
-    <!-- Right: Control Panel -->
     <div id="panel">
 
-      <!-- Date Slider -->
       <div class="panel-section" id="timeline-section">
-        <h3>📅 Date</h3>
-        <div id="date-display">2024-01-01</div>
+        <h3>&#x1F4C5; Date</h3>
+        <div id="date-display">2023-10-03</div>
         <input type="range" id="date-slider" min="0" max="89" value="0" step="1"/>
         <div id="slider-labels">
-          <span>Jan 2024</span><span>Mar 2024</span>
+          <span>2023-10</span><span>2023-12</span>
         </div>
-        <button id="play-btn">▶ Play</button>
+        <button id="play-btn">&#x25B6; Play</button>
       </div>
 
-      <!-- Zone Info -->
       <div class="panel-section" id="zone-section">
-        <h3>📍 Selected Zone</h3>
+        <h3>&#x1F4CD; Selected Zone</h3>
         <div id="zone-info">
           <p id="zone-id-display">Click a zone on the map</p>
           <table id="zone-stats" style="display:none">
-            <tr><td>Zone ID</td><td id="stat-zone-id">—</td></tr>
-            <tr><td>Anomaly (σ)</td><td id="stat-zscore">—</td></tr>
-            <tr><td>Raw CHL</td><td id="stat-chl">— mg/m³</td></tr>
-            <tr><td>Climatology μ</td><td id="stat-mu">—</td></tr>
-            <tr><td>Risk Level</td><td id="stat-risk">—</td></tr>
+            <tr><td>Zone ID</td><td id="stat-zone-id">&#x2014;</td></tr>
+            <tr><td>Anomaly (&#x3C3;)</td><td id="stat-zscore">&#x2014;</td></tr>
+            <tr><td>Raw CHL</td><td id="stat-chl">&#x2014;</td></tr>
+            <tr><td>Climatology &#x3BC;</td><td id="stat-mu">&#x2014;</td></tr>
+            <tr><td>Risk Level</td><td id="stat-risk">&#x2014;</td></tr>
           </table>
+        </div>
+
+        <!-- M6: 30-day history sparkline -->
+        <div id="history-chart-container" style="display:none; margin-top:10px">
+          <div style="font-size:0.7rem; color:#64748b; margin-bottom:4px">
+            30-DAY ANOMALY HISTORY
+          </div>
+          <canvas id="history-chart" height="80"></canvas>
+          <div id="history-stats"
+               style="display:flex; justify-content:space-between;
+                      font-size:0.65rem; color:#64748b; margin-top:4px">
+            <span id="hist-max">Max: &#x2014;</span>
+            <span id="hist-mean">Avg: &#x2014;</span>
+            <span id="hist-days">Days &gt; &#x3B8;: &#x2014;</span>
+          </div>
         </div>
       </div>
 
-      <!-- NL Explain -->
       <div class="panel-section" id="explain-section">
-        <h3>🤖 Explain Anomaly</h3>
+        <h3>&#x1F916; Explain Anomaly</h3>
         <button id="explain-btn" disabled>Ask AI</button>
         <div id="explain-output">
           <p id="explain-text">Select a zone first, then click Ask AI.</p>
         </div>
       </div>
 
-      <!-- Top Anomaly Zones -->
       <div class="panel-section" id="topzones-section">
-        <h3>🚨 Top Risk Zones Today</h3>
+        <h3>&#x1F6A8; Top Risk Zones Today</h3>
         <ol id="top-zones-list">
           <li>Loading...</li>
         </ol>
@@ -84,12 +90,11 @@
     </div>
   </div>
 
-  <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <!-- App JS — order matters -->
   <script src="js/heatmap.js"></script>
   <script src="js/map.js"></script>
   <script src="js/timeline.js"></script>
   <script src="js/explain.js"></script>
+  <script src="js/history.js"></script>
 </body>
 </html>

@@ -19,8 +19,9 @@ body {
   align-items: center;
   gap: 16px;
   height: 48px;
+  flex-shrink: 0;
 }
-#logo { font-size: 1.2rem; font-weight: 700; color: #4fc3f7; }
+#logo     { font-size: 1.2rem; font-weight: 700; color: #4fc3f7; }
 #subtitle { font-size: 0.85rem; color: #90a4ae; flex: 1; }
 #live-badge {
   font-size: 0.75rem;
@@ -34,12 +35,14 @@ body {
   display: flex;
   flex: 1;
   overflow: hidden;
+  min-height: 0;
 }
 
 /* ── Map ── */
 #map-container {
   flex: 1;
   position: relative;
+  min-width: 0;
 }
 #map {
   width: 100%;
@@ -75,20 +78,21 @@ body {
 
 /* ── Right Panel ── */
 #panel {
-  width: 320px;
+  width: 260px;
+  min-width: 260px;
   background: #0d1b2a;
   border-left: 1px solid #1e3a5f;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 0;
+  flex-shrink: 0;
 }
 .panel-section {
-  padding: 16px;
+  padding: 14px;
   border-bottom: 1px solid #1e3a5f;
 }
 .panel-section h3 {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: #4fc3f7;
   margin-bottom: 10px;
   text-transform: uppercase;
@@ -136,8 +140,20 @@ body {
   border-bottom: 1px solid #1e3a5f;
 }
 #zone-stats td:first-child { color: #78909c; width: 55%; }
-#zone-stats td:last-child { font-weight: 600; color: #e0f7fa; }
+#zone-stats td:last-child  { font-weight: 600; color: #e0f7fa; }
 #zone-id-display { font-size: 0.82rem; color: #546e7a; }
+
+/* ── History Chart ── */
+#history-chart-container {
+  margin-top: 10px;
+}
+#history-stats {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  color: #64748b;
+  margin-top: 4px;
+}
 
 /* ── Explain Panel ── */
 #explain-btn {
@@ -157,20 +173,27 @@ body {
   background: #0a1628;
   border-radius: 6px;
   padding: 10px;
-  min-height: 80px;
-  max-height: 180px;
+  min-height: 60px;
+  max-height: 160px;
   overflow-y: auto;
   font-size: 0.8rem;
   line-height: 1.5;
   color: #b0bec5;
 }
 
-/* ── Top Zones List ── */
+/* ── Top Zones / Alerts List ── */
 #top-zones-list {
-  padding-left: 18px;
+  padding-left: 0;        /* removed — new alerts use list-style:none */
+  list-style: none;
   font-size: 0.82rem;
-  line-height: 1.9;
 }
 #top-zones-list li { color: #e0e6f0; }
-#top-zones-list li span.risk-high { color: #ef5350; font-weight: 700; }
-#top-zones-list li span.risk-med  { color: #ffa726; font-weight: 600; }
+
+/* ── Risk label classes (used by heatmap.js + alerts sidebar) ── */
+.risk-critical { color: #ef4444; font-weight: 700; }
+.risk-high     { color: #f97316; font-weight: 700; }
+.risk-elevated { color: #eab308; font-weight: 600; }
+.risk-normal   { color: #22d3ee; font-weight: 500; }
+
+/* Legacy aliases */
+.risk-med { color: #ffa726; font-weight: 600; }
