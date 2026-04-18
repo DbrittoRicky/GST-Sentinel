@@ -2,8 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <link rel="icon" href="data:,">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌊</text></svg>">
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="description" content="GST-Sentinel — Real-time coastal algal bloom monitoring for the Indian EEZ using spatio-temporal GNN anomaly detection." />
   <title>GST-Sentinel — Coastal Algal Bloom Monitor</title>
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -13,9 +14,19 @@
 <body>
 
   <header id="topbar">
-    <span id="logo">&#x1F30A; GST-Sentinel</span>
+    <span id="logo">
+      <span class="logo-icon">🌊</span>
+      GST-Sentinel
+    </span>
     <span id="subtitle">Indian EEZ Chlorophyll Anomaly Monitor</span>
-    <span id="live-badge">&#x25CF; LIVE</span>
+    <div id="system-status">
+      <span class="status-chip"><span class="dot"></span> API</span>
+      <span class="status-chip"><span class="dot"></span> NeonDB</span>
+    </div>
+    <span id="live-badge">
+      <span class="pulse-dot"></span>
+      LIVE
+    </span>
   </header>
 
   <div id="app">
@@ -23,70 +34,119 @@
     <div id="map-container">
       <div id="map"></div>
       <div id="legend">
-        <div class="legend-title">CHL Anomaly (&#x3C3;)</div>
+        <div class="legend-title">CHL Anomaly (σ)</div>
         <div class="legend-scale"></div>
         <div class="legend-labels">
-          <span>-3</span><span>0</span><span>+3</span>
+          <span>−3</span><span>0</span><span>+3</span>
         </div>
       </div>
     </div>
 
-    <div id="panel">
+    <div id="panel-wrapper">
+      <div id="panel-resize-handle"></div>
+      <div id="panel">
 
+      <!-- Timeline Section -->
       <div class="panel-section" id="timeline-section">
-        <h3>&#x1F4C5; Date</h3>
+        <h3><span class="section-icon">📅</span> Date</h3>
         <div id="date-display">2023-10-03</div>
         <input type="range" id="date-slider" min="0" max="89" value="0" step="1"/>
         <div id="slider-labels">
           <span>2023-10</span><span>2023-12</span>
         </div>
-        <button id="play-btn">&#x25B6; Play</button>
+        <button id="play-btn">▶ Play</button>
       </div>
 
+      <!-- Selected Zone Section -->
       <div class="panel-section" id="zone-section">
-        <h3>&#x1F4CD; Selected Zone</h3>
+        <h3><span class="section-icon">📍</span> Selected Zone</h3>
         <div id="zone-info">
           <p id="zone-id-display">Click a zone on the map</p>
           <table id="zone-stats" style="display:none">
-            <tr><td>Zone ID</td><td id="stat-zone-id">&#x2014;</td></tr>
-            <tr><td>Anomaly (&#x3C3;)</td><td id="stat-zscore">&#x2014;</td></tr>
-            <tr><td>Raw CHL</td><td id="stat-chl">&#x2014;</td></tr>
-            <tr><td>Climatology &#x3BC;</td><td id="stat-mu">&#x2014;</td></tr>
-            <tr><td>Risk Level</td><td id="stat-risk">&#x2014;</td></tr>
+            <tr><td>Zone ID</td><td id="stat-zone-id">—</td></tr>
+            <tr><td>Anomaly (σ)</td><td id="stat-zscore">—</td></tr>
+            <tr><td>Raw CHL</td><td id="stat-chl">—</td></tr>
+            <tr><td>Climatology μ</td><td id="stat-mu">—</td></tr>
+            <tr><td>Risk Level</td><td id="stat-risk">—</td></tr>
           </table>
         </div>
 
-        <!-- M6: 30-day history sparkline -->
-        <div id="history-chart-container" style="display:none; margin-top:10px">
-          <div style="font-size:0.7rem; color:#64748b; margin-bottom:4px">
-            30-DAY ANOMALY HISTORY
+        <div id="history-chart-container" style="display:none;">
+          <div class="chart-label">30-Day Anomaly History</div>
+          <div id="history-chart-wrapper">
+            <canvas id="history-chart"></canvas>
           </div>
-          <canvas id="history-chart" height="80"></canvas>
-          <div id="history-stats"
-               style="display:flex; justify-content:space-between;
-                      font-size:0.65rem; color:#64748b; margin-top:4px">
-            <span id="hist-max">Max: &#x2014;</span>
-            <span id="hist-mean">Avg: &#x2014;</span>
-            <span id="hist-days">Days &gt; &#x3B8;: &#x2014;</span>
+          <div id="history-stats">
+            <span id="hist-max">Max: —</span>
+            <span id="hist-mean">Avg: —</span>
+            <span id="hist-days">Days > θ: —</span>
           </div>
         </div>
       </div>
 
+      <!-- Explain / LLM Section -->
       <div class="panel-section" id="explain-section">
-        <h3>&#x1F916; Explain Anomaly</h3>
-        <button id="explain-btn" disabled>Ask AI</button>
+        <h3><span class="section-icon">🤖</span> AI Analysis</h3>
+        <div id="explain-controls">
+          <input type="text" id="explain-query" placeholder="Ask about this anomaly..." />
+          <button id="explain-btn" disabled>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 0 1 10 10c0 5.5-4.5 10-10 10a10 10 0 1 1 0-20z"/><path d="M12 6v6l4 2"/></svg>
+            Ask AI
+          </button>
+        </div>
         <div id="explain-output">
-          <p id="explain-text">Select a zone first, then click Ask AI.</p>
+          <p id="explain-text">Select a zone first, then ask AI for analysis.</p>
         </div>
       </div>
 
+      <!-- Top Risk Zones Section -->
       <div class="panel-section" id="topzones-section">
-        <h3>&#x1F6A8; Top Risk Zones Today</h3>
+        <h3><span class="section-icon">🚨</span> Top Risk Zones Today</h3>
         <ol id="top-zones-list">
-          <li>Loading...</li>
+          <li class="empty-state">
+            <div class="empty-icon">📡</div>
+            Loading alerts...
+          </li>
         </ol>
       </div>
 
+      </div>
+    </div>
+  </div>
+
+  <!-- Graph Modal Overlay -->
+  <div id="graph-overlay">
+    <div id="graph-modal">
+      <div class="modal-header">
+        <div class="modal-title">
+          Zone Graph
+          <span class="zone-chip" id="graph-zone-chip">—</span>
+        </div>
+        <button class="close-btn" id="graph-close-btn">✕</button>
+      </div>
+      <div id="graph-chart-container">
+        <div id="graph-chart-wrapper">
+          <canvas id="graph-chart"></canvas>
+        </div>
+      </div>
+      <div id="graph-stats-row">
+        <div class="graph-stat-card">
+          <div class="stat-label">Peak σ</div>
+          <div class="stat-value" id="graph-stat-peak">—</div>
+        </div>
+        <div class="graph-stat-card">
+          <div class="stat-label">Avg σ</div>
+          <div class="stat-value" id="graph-stat-avg">—</div>
+        </div>
+        <div class="graph-stat-card">
+          <div class="stat-label">Trend</div>
+          <div class="stat-value" id="graph-stat-trend">—</div>
+        </div>
+        <div class="graph-stat-card">
+          <div class="stat-label">Days > θ</div>
+          <div class="stat-value" id="graph-stat-days">—</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -96,5 +156,6 @@
   <script src="js/timeline.js"></script>
   <script src="js/explain.js"></script>
   <script src="js/history.js"></script>
+  <script src="js/resize.js"></script>
 </body>
 </html>
